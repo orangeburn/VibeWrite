@@ -1,0 +1,334 @@
+'use server';
+
+import { generateText } from 'ai';
+import { writingModel, planningModel } from '@/lib/ai';
+import { performWebSearch } from '@/lib/search';
+import { buildWeightedFacts, generateNodePrompt } from '@/lib/prompt';
+import { validateMarkdown } from '@/lib/markdown';
+
+/**
+ * Fold 3: Stateless Production
+ * Generates content for a single node based on Consensus and Local Facts.
+ * Now includes independent web search for each node.
+ */
+export async function writeNodeContent(
+    nodeTitle: string,
+    nodeDescription: string,
+    globalFacts: string[],
+    localFacts: string[],
+    userConstraints: Record<string, any>,
+    customPrompt?: string,
+    enableSearch: boolean = false,
+    materials: { name: string, content: string }[] = []
+) {
+    let searchResults = "";
+    if (enableSearch) {
+        // Conduct independent search for the node
+        const searchQuery = `${nodeTitle} ${nodeDescription}`.slice(0, 200);
+        const searchResponse = await performWebSearch(searchQuery);
+        if (searchResponse.success) {
+            searchResults = searchResponse.results;
+        }
+    }
+
+    const searchFacts = searchResults ? [searchResults] : [];
+
+    const weightedFacts = buildWeightedFacts(localFacts, globalFacts, searchFacts);
+    const prompt = generateNodePrompt(
+        nodeTitle,
+        nodeDescription,
+        weightedFacts,
+        userConstraints,
+        customPrompt,
+        materials
+    );
+
+    try {
+        const { text } = await generateText({
+            model: writingModel,
+            prompt: prompt,
+        });
+
+        return { success: true, data: text };
+    } catch (error) {
+        console.error('Writing Error:', error);
+        return { success: false, error: 'Failed to write node content' };
+    }
+}
+
+/**
+ * Fold 4: Sequential Integration (Rolling Window)
+ * Smooths the transition between the previous section and the current one.
+ */
+export async function integrateNode(
+    prevContent: string,
+    currentContent: string,
+    nodeTitle: string,
+    language: string = 'zh'
+) {
+    // If no previous content, no need to integrate, just return current.
+    if (!prevContent) return { success: true, data: currentContent };
+
+    const lastParagraph = prevContent.slice(-500); // Take last ~500 chars context
+
+    try {
+        const { text } = await generateText({
+            model: writingModel,
+            prompt: `
+        You are the "Stitcher" agent.
+        Your job is to ensure smooth transitions between sections.
+        
+        Previous Section (End):
+        "...${lastParagraph}"
+        
+        Current Section (Start):
+        "${nodeTitle}"
+        ${currentContent.slice(0, 1000)}...
+        
+        Task:
+        Rewrite the BEGINNING of the Current Section so it flows naturally from the Previous Section.
+        Return the MODIFIED version of the Current Section (or at least the first few paragraphs).
+        If it already flows well, return it as is.
+        Language: ${language}
+
+        IMPORTANT: Always use the same language as the input sections.
+      `,
+        });
+
+        // In a real implementation we might merge this back intelligently.
+        // For MVP, we can treat the output as the new start of the current content.
+        // However, simplest is to ask AI to rewrite the WHOLE current node with context of previous.
+        // Let's adjust prompt to rewrite the whole current block if it's short, or just start.
+        // For MVP robustness, let's ask to rewrite the current section entirely given the predecessor context.
+
+        return { success: true, data: text }; // Assuming text is the full rewritten section
+    } catch (error) {
+        console.error('Integration Error:', error);
+        return { success: false, error: 'Failed to integrate content' };
+    }
+}
+
+/**
+ * Fold 4: Global Audit
+ * Checks for hallucinations or tone inconsistencies.
+ * Now supports web search for fact-checking.
+ */
+export async function auditContent(
+    fullContent: string,
+    allFacts: string[],
+    enableSearch: boolean = false,
+    materials: { name: string, content: string }[] = [],
+    lang: string = 'zh',
+    userConstraints: Record<string, any> = {}
+) {
+    let searchResults = "";
+    if (enableSearch) {
+        try {
+            // Generate a verification query based on the main content
+            const queryResult = await generateText({
+                model: planningModel,
+                prompt: `Analyze the following article and generate a concise search query to verify its key factual claims.\n\nArticle:\n${fullContent.slice(0, 1000)}...`,
+            });
+            const searchQuery = queryResult.text.trim().replace(/^"|"$/g, '');
+
+            const searchResponse = await performWebSearch(searchQuery);
+            if (searchResponse.success) {
+                searchResults = searchResponse.results;
+            }
+        } catch (e) {
+            console.error('Audit Search Generation Error:', e);
+        }
+    }
+
+    const materialsContext = materials.length > 0
+        ? `\n[CORE SOURCE MATERIALS (Absolute Priority)]:\n${materials.map(m => `--- Start of ${m.name} ---\n${m.content}\n--- End of ${m.name} ---`).join('\n\n')}`
+        : '';
+
+    const language = userConstraints?.language || 'zh'
+    const languageInstruction = language === 'zh' ? '中文' :
+                               language === 'en' ? 'English' :
+                               language === 'ja' ? '日本語' :
+                               language === 'ko' ? '한국어' : '中文'
+
+    try {
+        const { text } = await generateText({
+            model: planningModel,
+            prompt: `
+        Audit the following article for hallucinations and factual accuracy.
+        
+        Article:
+        ${fullContent}
+        ${materialsContext}
+
+        Allowed Facts (Global):
+        ${allFacts.join('\n- ')}
+        
+        ${searchResults ? `External Verification Context (Source: Web Search - Secondary Priority):\n${searchResults}` : ''}
+        
+        Task:
+        1. Identify any claims not supported by the Allowed Facts or CORE SOURCE MATERIALS. 
+        2. HIERARCHY OF TRUTH: User Intent and [CORE SOURCE MATERIALS] are ABSOLUTE. If search results contradict materials, the materials WIN.
+        3. Detect tone inconsistencies.
+        4. Factual accuracy check: Use External Verification ONLY for details not covered by materials.
+        
+        Output Format (JSON Array only):
+        [
+          {
+            "type": "success" | "warning" | "error",
+            "message": "Short title of the issue or confirmation",
+            "description": "Detailed explanation of what was found"
+          }
+        ]
+        
+        IMPORTANT: Your audit objects MUST be in the same language as the Article.
+        If no issues are found, return at least one "success" item saying "Overall Audit Passed".
+      `,
+        });
+
+        // Attempt to parse JSON from the AI response
+        const cleanText = text.replace(/```json|```/g, '').trim();
+        try {
+            const parsed = JSON.parse(cleanText);
+            return { success: true, data: parsed };
+        } catch (e) {
+            // Fallback for non-JSON or malformed JSON
+            return {
+                success: true,
+                data: [
+                    {
+                        type: text.includes("PASSED") ? "success" : "warning",
+                        message: "全局审计结果",
+                        description: text
+                    }
+                ]
+            };
+        }
+    } catch (error) {
+        console.error('Audit Error:', error);
+        return { success: false, error: 'Failed to audit content' };
+    }
+}
+/**
+ * Fold 5: Title Generation
+ * Generates a title based on the integrated content and user constraints.
+ */
+export async function generateTitle(fullContent: string, userConstraints: Record<string, any>, language: string = 'zh') {
+    try {
+        const { text } = await generateText({
+            model: planningModel,
+            prompt: `
+        Analyze the following article and generate a compelling, professional title.
+        
+        Article Content:
+        ${fullContent.slice(0, 5000)}... (truncated for analysis)
+        
+        Constraints:
+        - Tone: ${userConstraints?.tone || 'Professional'}
+        - Audience: ${userConstraints?.target_audience || 'General'}
+        
+        Task:
+        1. Extract the core viewpoint and theme.
+        2. Create a title that is engaging and reflects the content accurately.
+        3. Return ONLY the title text.
+        Language: ${language}
+
+        IMPORTANT: Your title MUST be in the same language as the Article Content.
+      `,
+        });
+
+        return { success: true, data: text.trim() };
+    } catch (error) {
+        console.error('Title Generation Error:', error);
+        return { success: false, error: 'Failed to generate title' };
+    }
+}
+
+/**
+ * Fold 5: Global Modular Integration (Final Rewrite)
+ * Rewrites the entire article based on the global intent and constraints from Act 1.
+ */
+export async function finalizeArticle(
+    fullDraft: string,
+    intent: string,
+    userConstraints: Record<string, any>,
+    globalFacts: string[],
+    enableSearch: boolean = false,
+    materials: { name: string, content: string }[] = [],
+    language: string = 'zh'
+) {
+    let searchResults = "";
+    if (enableSearch) {
+        try {
+            const queryResult = await generateText({
+                model: planningModel,
+                prompt: `Analyze the following article draft and generate a single search query to verify its key factual claims or find supporting evidence.\n\nDraft:\n${fullDraft.slice(0, 1000)}...`,
+            });
+            const searchQuery = queryResult.text.trim().replace(/^"|"$/g, '');
+            const searchResponse = await performWebSearch(searchQuery);
+            if (searchResponse.success) {
+                searchResults = searchResponse.results;
+            }
+        } catch (e) {
+            console.error('Finalize Search Error:', e);
+        }
+    }
+
+    const materialsContext = materials.length > 0
+        ? `\n[CORE SOURCE MATERIALS (Absolute Priority)]:\n${materials.map(m => `--- Start of ${m.name} ---\n${m.content}\n--- End of ${m.name} ---`).join('\n\n')}`
+        : '';
+
+    const language = userConstraints?.language || 'zh'
+    const languageInstruction = language === 'zh' ? '中文' :
+                               language === 'en' ? 'English' :
+                               language === 'ja' ? '日本語' :
+                               language === 'ko' ? '한국어' : '中文'
+
+        try {
+        const { text } = await generateText({
+            model: writingModel,
+            prompt: `
+        You are the "Master Editor". 
+        Your task is to take a modularly generated draft and rewrite it into a cohesive, high-quality article while performing authoritative FACT-CHECKING.
+        
+        Original Draft:
+        ${fullDraft}
+
+        Writing Context (Act 1):
+        - Core Intent: ${intent}
+        - Tone: ${userConstraints?.tone || 'Professional'}
+        - Target Audience: ${userConstraints?.target_audience || 'General'}
+
+        ${materialsContext}
+
+        Reference Global Facts:
+        ${globalFacts.join('\n- ')}
+
+        ${searchResults ? `External Verification Context (Source: Web Search - Secondary Priority):\n${searchResults}` : ''}
+        
+        Task:
+        1. REWRITE the draft into a unified article.
+        2. HIERARCHY OF TRUTH: 
+           - ABSOLUTE PRIORITY: [Core Intent] and [CORE SOURCE MATERIALS]. If the draft or search results contradict these, you MUST follow the materials.
+           - SECONDARY PRIORITY: [External Verification Context]. Use this only if materials are silent.
+        3. CONFLICT RESOLUTION: If you find a factual error in the Original Draft that contradicts the CORE SOURCE MATERIALS, CORRECT IT in the final article.
+        4. ALIGN with the Core Intent and specified Tone.
+        5. SMOOTH all transitions between sections.
+        
+         Output:
+         Output Language: ${languageInstruction}
+         Return the full rewritten article in pure Markdown format. Do NOT output JSON or code blocks.
+         Your output MUST be in the same language as the Original Draft, unless specified otherwise above.
+      `,
+        });
+
+        const article = text.trim();
+        // Validate Markdown format to catch rendering issues
+        if (!validateMarkdown(article)) {
+            console.warn('Markdown validation failed for final article');
+        }
+        return { success: true, data: { article, corrections: [] } };
+    } catch (error) {
+        console.error('Finalization Error:', error);
+        return { success: false, error: 'Failed to finalize article' };
+    }
+}

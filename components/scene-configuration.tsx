@@ -187,12 +187,23 @@ export function SceneConfiguration({ onNext, initialData }: SceneConfigurationPr
     setDynamicFields([])
     setFormData({})
 
-    const result = await generateFormSchema(missingInfo)
+    // Collect selected facts content for context
+    const selectedFactContents: string[] = []
+
+    // Add enabled global facts
+    globalFacts.filter(f => f.enabled).forEach(f => selectedFactContents.push(f.content))
+
+    // Add enabled material facts
+    materials.forEach(m => {
+      m.facts.filter(f => f.enabled).forEach(f => selectedFactContents.push(f.content))
+    })
+
+    const result = await generateFormSchema(missingInfo, intent, selectedFactContents)
 
     if (result.success && result.data) {
       setDynamicFields(result.data)
       setShowDynamicForm(true)
-      toast.success("已重新生成配置选项")
+      toast.success("已基于您的意图和选择重新生成配置选")
     }
     setIsGeneratingForm(false)
   }
@@ -297,10 +308,18 @@ export function SceneConfiguration({ onNext, initialData }: SceneConfigurationPr
           {/* Parse Button */}
           {!isParsed ? (
             <Button
-              onClick={handleParseMaterials}
+              onClick={() => {
+                if (!intent.trim() && materials.length === 0) {
+                  toast.warning("请输入写作意图", {
+                    description: "写作意图或参考素材至少需要填写一项"
+                  })
+                  return
+                }
+                handleParseMaterials()
+              }}
               className="w-full bg-transparent"
               variant="outline"
-              disabled={!canParse || isParsing}
+              disabled={isParsing}
             >
               {isParsing ? (
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -374,7 +393,7 @@ export function SceneConfiguration({ onNext, initialData }: SceneConfigurationPr
                 ) : (
                   <Sparkles className="mr-2 h-4 w-4" />
                 )}
-                {isGeneratingForm ? "正在生成表单..." : "生成动态表单"}
+                {isGeneratingForm ? "正在分析意图并生成表单..." : "生成动态表单"}
               </Button>
             )}
           </div>

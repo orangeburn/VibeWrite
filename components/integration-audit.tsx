@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
-import { ArrowLeft, Download, FileText, AlertTriangle, CheckCircle2, Sparkles, Globe } from "lucide-react"
+import { ArrowLeft, Download, FileText, AlertTriangle, CheckCircle2, Sparkles, Globe, X, RefreshCw, Loader2, Check, AlertCircle } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 
 import { integrateNode, auditContent, generateTitle } from "@/app/actions/production"
+import { useVibeWriteStore } from "@/store/useVibeWriteStore"
 import type { Material } from "@/lib/types"
+import { useTranslation } from "@/lib/i18n"
 
 interface IntegrationAuditProps {
   productionData: any
@@ -20,11 +22,13 @@ interface IntegrationAuditProps {
 }
 
 export function IntegrationAudit({ productionData, blueprintData, globalContext, onBack }: IntegrationAuditProps) {
+  const { t } = useTranslation()
+  const { productionResult, setProductionResult, syncHistory } = useVibeWriteStore()
   const [isIntegrating, setIsIntegrating] = useState(false)
-  const [integratedContent, setIntegratedContent] = useState("")
-  const [auditResults, setAuditResults] = useState<any[]>([])
-  const [isCompleted, setIsCompleted] = useState(false)
-  const [articleTitle, setArticleTitle] = useState("")
+  const [integratedContent, setIntegratedContent] = useState(productionResult.fullContent || "")
+  const [auditResults, setAuditResults] = useState<any[]>(productionResult.auditResults || [])
+  const [isCompleted, setIsCompleted] = useState(!!productionResult.fullContent)
+  const [articleTitle, setArticleTitle] = useState(productionResult.title || "")
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false)
   const [useSearch, setUseSearch] = useState(true)
   const [hasMounted, setHasMounted] = useState(false)
@@ -96,9 +100,23 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
 
     // 3. Generate Title
     setIsGeneratingTitle(true)
-    const titleResult = await generateTitle(currentIntegratedText, globalContext.formData)
+    const titleResult = await generateTitle(
+      currentIntegratedText,
+      globalContext.intent,
+      globalFacts,
+      globalContext.formData
+    )
     if (titleResult.success && titleResult.data) {
-      setArticleTitle(titleResult.data)
+      const generatedTitle = titleResult.data
+      setArticleTitle(generatedTitle)
+      // Sync to global store
+      setProductionResult({
+        title: generatedTitle,
+        fullContent: currentIntegratedText,
+        auditResults: mockAuditResults
+      })
+      // Also update History Document Title
+      syncHistory({ title: generatedTitle })
     }
     setIsGeneratingTitle(false)
 
@@ -108,9 +126,19 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
 
   const handleRegenerateTitle = async () => {
     setIsGeneratingTitle(true)
-    const titleResult = await generateTitle(integratedContent, globalContext.formData)
+    const titleResult = await generateTitle(
+      integratedContent,
+      globalContext.intent,
+      globalFacts,
+      globalContext.formData
+    )
     if (titleResult.success && titleResult.data) {
-      setArticleTitle(titleResult.data)
+      const generatedTitle = titleResult.data
+      setArticleTitle(generatedTitle)
+      // Sync to global store
+      setProductionResult({ title: generatedTitle })
+      // Also update History Document Title
+      syncHistory({ title: generatedTitle })
     }
     setIsGeneratingTitle(false)
   }
@@ -133,8 +161,8 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
     <div className="space-y-6">
       {/* Section Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-balance">整合与全局审计</h2>
-        <p className="mt-2 text-muted-foreground">逐步衔接重写各模块内容，并进行全局一致性和准确性审计</p>
+        <h2 className="text-2xl font-semibold text-balance">{t('integrationAuditTitle')}</h2>
+        <p className="mt-2 text-muted-foreground">{t('integrationAuditDescription')}</p>
       </div>
 
       {/* Integration Status */}
@@ -142,16 +170,16 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
         <Card className="p-6">
           <div className="flex items-start justify-between gap-6">
             <div className="flex-1">
-              <h3 className="font-medium">开始整合与审计</h3>
+              <h3 className="font-medium">{t('integrationStartTitle')}</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                系统将采用滚动递进模式整合所有章节，并进行语气一致性和事实准确性检查
+                {t('integrationStartDescription')}
               </p>
             </div>
             <div className="flex flex-col items-end gap-4">
               <div className="flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 shadow-sm">
                 <Globe className={`h-4 w-4 ${useSearch ? "text-primary" : "text-muted-foreground"}`} />
                 <Label htmlFor="audit-search-toggle" className="text-sm font-medium cursor-pointer whitespace-nowrap">
-                  联网事实核查
+                  {t('networkStatus.online')}
                 </Label>
                 <Switch
                   id="audit-search-toggle"
@@ -163,12 +191,12 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
                 {isIntegrating ? (
                   <>
                     <Sparkles className="mr-2 h-4 w-4 animate-spin" />
-                    处理中...
+                    {t('integrationInProgress')}
                   </>
                 ) : (
                   <>
                     <Sparkles className="mr-2 h-4 w-4" />
-                    开始处理
+                    {t('fullIntegration')}
                   </>
                 )}
               </Button>
@@ -181,8 +209,8 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
       {isCompleted && (
         <Tabs defaultValue="content" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="content">整合内容</TabsTrigger>
-            <TabsTrigger value="audit">审计报告</TabsTrigger>
+            <TabsTrigger value="content">{t('contentTab')}</TabsTrigger>
+            <TabsTrigger value="audit">{t('auditTab')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="content" className="space-y-4">
@@ -190,8 +218,8 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="font-medium">最终内容</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">所有章节已完成整合，可导出多种格式</p>
+                    <h3 className="font-medium">{t('finalContentTitle')}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{t('finalContentDescription')}</p>
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={() => handleExport("md")} variant="outline" size="sm" className="bg-transparent">
@@ -213,11 +241,11 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
                   <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1">
-                        <Label className="text-xs text-muted-foreground">生成的文章标题</Label>
+                        <Label className="text-xs text-muted-foreground">{t('generatedArticleTitle')}</Label>
                         {isGeneratingTitle ? (
                           <div className="h-7 w-2/3 animate-pulse rounded bg-muted-foreground/20 mt-1" />
                         ) : (
-                          <h4 className="text-lg font-bold mt-1">{articleTitle || "未生成标题"}</h4>
+                          <h4 className="text-lg font-bold mt-1">{articleTitle || t('noTitleGenerated')}</h4>
                         )}
                       </div>
                       <Button
@@ -228,7 +256,7 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
                         className="h-8 gap-1 text-xs"
                       >
                         <Sparkles className="h-3 w-3" />
-                        重新生成标题
+                        {t('regenerateTitleButton')}
                       </Button>
                     </div>
                   </div>
@@ -247,13 +275,13 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
             <Card className="p-6">
               <div className="space-y-4">
                 <div>
-                  <h3 className="font-medium">审计结果</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">全局一致性与准确性检查</p>
+                  <h3 className="font-medium">{t('auditReportTitle')}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{t('auditReportDescription')}</p>
                 </div>
 
                 <div className="space-y-3">
-                  {auditResults.map((result) => (
-                    <Card key={result.id} className="p-4">
+                  {auditResults.map((result, index) => (
+                    <Card key={result.id || `audit-${index}`} className="p-4">
                       <div className="flex items-start gap-3">
                         <div className="mt-0.5">
                           {result.type === "success" && <CheckCircle2 className="h-5 w-5 text-green-600" />}
@@ -264,7 +292,7 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
                           <div className="flex items-center gap-2">
                             <h4 className="font-medium">{result.message}</h4>
                             <Badge variant={result.type === "success" ? "default" : "secondary"} className="text-xs">
-                              {result.type === "success" ? "通过" : "建议"}
+                              {result.type === "success" ? t('auditPassed') : t('auditSuggestion')}
                             </Badge>
                           </div>
                           <p className="mt-1 text-sm text-muted-foreground">{result.description}</p>
@@ -283,12 +311,12 @@ export function IntegrationAudit({ productionData, blueprintData, globalContext,
       <div className="flex justify-between gap-3">
         <Button onClick={onBack} variant="outline" size="lg" className="bg-transparent" disabled={isIntegrating}>
           <ArrowLeft className="mr-2 h-4 w-4" />
-          上一步
+          {t('backButton')}
         </Button>
         {isCompleted && (
           <Button size="lg" className="gap-2">
             <FileText className="h-4 w-4" />
-            创建新项目
+            {t('createNewProject')}
           </Button>
         )}
       </div>

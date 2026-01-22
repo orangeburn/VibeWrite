@@ -10,8 +10,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { MaterialUploader } from "@/components/material-uploader"
 import { AtomicFactsList } from "@/components/atomic-facts-list"
 import { Switch } from "@/components/ui/switch"
-import { Globe, GripVertical, Lock, Unlock, Trash2, FileText, Sparkles, RefreshCw } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Globe, GripVertical, Lock, Unlock, Trash2, FileText, Sparkles, RefreshCw, Check, AlertCircle, Clock, Loader2 } from "lucide-react"
 import type { BlueprintNode, Material } from "@/lib/types"
+import { useTranslation } from "@/lib/i18n"
+
 
 interface SortableBlueprintNodeProps {
     node: BlueprintNode
@@ -21,13 +24,11 @@ interface SortableBlueprintNodeProps {
     handleToggleLock: (nodeId: string) => void
     handleRemoveNode: (nodeId: string) => void
     handleNodeChange: (nodeId: string, field: keyof BlueprintNode, value: any) => void
-    handleNodeMaterialsChange: (nodeId: string, materials: Material[]) => void
-    handleNodeFactToggle: (nodeId: string, materialId: string, factId: string) => void
-    handleParseMaterials: (nodeId: string) => void
-    nodeParsingStatus: Record<string, boolean>
-    nodeParsedStatus: Record<string, boolean>
-    canParseNode: (node: BlueprintNode) => boolean
-    hasNodeFacts: (node: BlueprintNode) => boolean
+    // 移除行内素材处理相关的 props，因为移到了侧栏
+    generatedContent?: { content: string; status: "pending" | "generating" | "completed" | "error" }
+    isGeneratingOverall?: boolean
+    onOpenDeepEdit: (nodeId: string) => void // 新增深度编辑回调
+    onRegenerateContent?: (nodeId: string) => void // 恢复重新生成回调
 }
 
 export function SortableBlueprintNode({
@@ -38,14 +39,12 @@ export function SortableBlueprintNode({
     handleToggleLock,
     handleRemoveNode,
     handleNodeChange,
-    handleNodeMaterialsChange,
-    handleNodeFactToggle,
-    handleParseMaterials,
-    nodeParsingStatus,
-    nodeParsedStatus,
-    canParseNode,
-    hasNodeFacts,
+    generatedContent,
+    isGeneratingOverall,
+    onOpenDeepEdit,
+    onRegenerateContent,
 }: SortableBlueprintNodeProps) {
+    const { t } = useTranslation()
     const {
         attributes,
         listeners,
@@ -62,11 +61,58 @@ export function SortableBlueprintNode({
         position: 'relative' as const,
     }
 
+    // 获取节点状态用于显示
+    const nodeStatus = generatedContent?.status || node.status || 'pending'
+
+    // 状态配置
+    const statusConfig = {
+        pending: {
+            color: 'bg-slate-400',
+            bgColor: 'bg-slate-100 dark:bg-slate-800',
+            textColor: 'text-slate-600 dark:text-slate-400',
+            icon: Clock,
+            label: t('node.status.pending'),
+            animate: false
+        },
+        generating: {
+            color: 'bg-blue-500',
+            bgColor: 'bg-blue-100 dark:bg-blue-900/30',
+            textColor: 'text-blue-600 dark:text-blue-400',
+            icon: Loader2,
+            label: t('node.status.generating'),
+            animate: true
+        },
+        completed: {
+            color: 'bg-emerald-500',
+            bgColor: 'bg-emerald-100 dark:bg-emerald-900/30',
+            textColor: 'text-emerald-600 dark:text-emerald-400',
+            icon: Check,
+            label: t('node.status.completed'),
+            animate: false
+        },
+        error: {
+            color: 'bg-red-500',
+            bgColor: 'bg-red-100 dark:bg-red-900/30',
+            textColor: 'text-red-600 dark:text-red-400',
+            icon: AlertCircle,
+            label: t('node.status.error'),
+            animate: false
+        }
+    }
+
+    const currentStatus = statusConfig[nodeStatus as keyof typeof statusConfig] || statusConfig.pending
+    const StatusIcon = currentStatus.icon
+
+    const hasNodeFacts = (node: BlueprintNode) => node.materials.some((m) => m.facts.length > 0)
+
     return (
         <div ref={setNodeRef} style={style}>
-            <Card className={`overflow-hidden ${node.locked ? "ring-2 ring-amber-500/50" : ""} ${isDragging ? "opacity-50 shadow-lg" : ""}`}>
+            <Card className={`overflow-hidden relative ${node.locked ? "ring-2 ring-amber-500/50" : ""} ${isDragging ? "opacity-50 shadow-lg" : ""} ${nodeStatus === 'generating' ? 'ring-1 ring-blue-400/50' : ''}`}>
+                {/* 左侧状态指示条 */}
+                <div className={`absolute left-0 top-0 bottom-0 w-1 ${currentStatus.color} ${currentStatus.animate ? 'animate-pulse' : ''}`} />
+
                 <div
-                    className="flex cursor-pointer items-center gap-3 p-4 hover:bg-accent/5"
+                    className="flex cursor-pointer items-center gap-3 py-3 pl-4 pr-3 hover:bg-accent/5"
                     onClick={() => setExpandedNode(expandedNode === node.id ? null : node.id)}
                 >
                     <div
@@ -75,55 +121,65 @@ export function SortableBlueprintNode({
                         className="cursor-grab text-muted-foreground hover:text-foreground touch-none"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <GripVertical className="h-5 w-5" />
+                        <GripVertical className="h-4 w-4" />
                     </div>
-                    <div className="flex h-8 w-8 items-center justify-center rounded bg-accent/10 text-sm font-semibold text-accent-foreground">
+                    <div className="flex h-6 w-6 items-center justify-center rounded bg-accent/10 text-xs font-semibold text-accent-foreground">
                         {index + 1}
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                            <h3 className="font-medium">{node.title || "未命名节点"}</h3>
-                            {node.locked && <Lock className="h-4 w-4 text-amber-500" />}
+                            <h3 className="font-medium text-sm truncate">{node.title || t('node.unnamed')}</h3>
+                            {node.locked && <Lock className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />}
                         </div>
-                        {node.description && (
-                            <p className="mt-1 text-sm text-muted-foreground line-clamp-1">{node.description}</p>
+                        {node.description && expandedNode !== node.id && (
+                            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{node.description}</p>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {/* 状态 Badge */}
+                        <Badge
+                            variant="secondary"
+                            className={`text-[10px] px-1.5 py-0 h-5 ${currentStatus.bgColor} ${currentStatus.textColor} border-0`}
+                        >
+                            <StatusIcon className={`h-3 w-3 mr-1 ${currentStatus.animate ? 'animate-spin' : ''}`} />
+                            {currentStatus.label}
+                        </Badge>
+
                         {node.materials.length > 0 && (
-                            <div className="flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
-                                <FileText className="h-3 w-3" />
+                            <div className="flex items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                <FileText className="h-2.5 w-2.5" />
                                 {node.materials.filter((m) => m.name !== "节点解析结果").length || node.materials.length}
                             </div>
                         )}
                         {hasNodeFacts(node) && (
-                            <div className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
-                                <Sparkles className="h-3 w-3" />
+                            <div className="flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                                <Sparkles className="h-2.5 w-2.5" />
                                 {node.materials.reduce((sum, m) => sum + m.facts.filter((f) => f.enabled).length, 0)}
                             </div>
                         )}
                         <Button
                             variant="ghost"
-                            size="sm"
+                            size="icon"
+                            className="h-6 w-6"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 handleToggleLock(node.id)
                             }}
-                            title={node.locked ? "解锁节点" : "锁定节点"}
-                            className={node.locked ? "text-amber-500 hover:text-amber-600" : ""}
+                            title={node.locked ? t('node.unlock') : t('node.lock')}
                         >
-                            {node.locked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                            {node.locked ? <Lock className="h-3.5 w-3.5 text-amber-500" /> : <Unlock className="h-3.5 w-3.5" />}
                         </Button>
                         <Button
                             variant="ghost"
-                            size="sm"
+                            size="icon"
+                            className="h-6 w-6"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 handleRemoveNode(node.id)
                             }}
                             disabled={node.locked}
                         >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                     </div>
                 </div>
@@ -131,10 +187,10 @@ export function SortableBlueprintNode({
                 {expandedNode === node.id && (
                     <div className="space-y-4 border-t border-border bg-card p-4">
                         <div className="space-y-2">
-                            <Label htmlFor={`title-${node.id}`}>节点标题</Label>
+                            <Label htmlFor={`title-${node.id}`}>{t('node.titleLabel')}</Label>
                             <Input
                                 id={`title-${node.id}`}
-                                placeholder="输入章节标题..."
+                                placeholder={t('node.titlePlaceholder')}
                                 value={node.title}
                                 onChange={(e) => handleNodeChange(node.id, "title", e.target.value)}
                                 onMouseDown={(e) => e.stopPropagation()}
@@ -142,10 +198,10 @@ export function SortableBlueprintNode({
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor={`description-${node.id}`}>节点描述</Label>
+                            <Label htmlFor={`description-${node.id}`}>{t('node.descLabel')}</Label>
                             <Textarea
                                 id={`description-${node.id}`}
-                                placeholder="描述本节点的写作重点和关键内容..."
+                                placeholder={t('node.descPlaceholder')}
                                 value={node.description}
                                 onChange={(e) => handleNodeChange(node.id, "description", e.target.value)}
                                 onMouseDown={(e) => e.stopPropagation()}
@@ -154,55 +210,51 @@ export function SortableBlueprintNode({
                             />
                         </div>
 
-                        <div className="space-y-3">
-                            <div>
-                                <Label>节点级素材</Label>
-                                <p className="text-sm text-muted-foreground">为该节点单独上传参考资料，仅在此章节使用</p>
+                        {/* Generated Content Preview & Actions */}
+                        <div className="pt-4 border-t space-y-3">
+                            <div className="flex items-center justify-between">
+                                <Label>{t('node.previewLabel')}</Label>
                             </div>
 
-                            <div onMouseDown={(e) => e.stopPropagation()}>
-                                <MaterialUploader
-                                    materials={node.materials.filter((m) => m.name !== "解析结果提取")}
-                                    onMaterialsChange={(materials) => handleNodeMaterialsChange(node.id, materials)}
-                                />
-                            </div>
-
-
-                            {canParseNode(node) && (
-                                <Button
-                                    onClick={() => handleParseMaterials(node.id)}
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full bg-transparent"
-                                    disabled={nodeParsingStatus[node.id]}
-                                >
-                                    {nodeParsingStatus[node.id] ? (
-                                        <>
-                                            <Sparkles className="mr-2 h-4 w-4 animate-spin" />
-                                            解析中...
-                                        </>
-                                    ) : nodeParsedStatus[node.id] ? (
-                                        <>
-                                            <RefreshCw className="mr-2 h-4 w-4" />
-                                            重新解析节点素材
-                                        </>
+                            {generatedContent ? (
+                                <div className="text-sm bg-muted/30 p-3 rounded-md min-h-[100px] whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+                                    {generatedContent.status === 'generating' ? (
+                                        <div className="flex items-center gap-2 text-muted-foreground">
+                                            <Sparkles className="h-4 w-4 animate-spin" />
+                                            {t('node.generatingContent')}
+                                        </div>
+                                    ) : generatedContent.status === 'error' ? (
+                                        <span className="text-red-500">{generatedContent.content}</span>
                                     ) : (
-                                        <>
-                                            <Sparkles className="mr-2 h-4 w-4" />
-                                            解析节点素材
-                                        </>
+                                        generatedContent.content || <span className="text-muted-foreground italic">{t('node.noContent')}</span>
                                     )}
+                                </div>
+                            ) : (
+                                <div className="text-sm text-muted-foreground italic bg-muted/10 p-3 rounded-md">
+                                    {t('node.waitingContent')}
+                                </div>
+                            )}
+
+                            {onRegenerateContent && (
+                                <Button
+                                    variant="outline"
+                                    className="w-full gap-2 border-dashed mb-2"
+                                    onClick={() => onRegenerateContent(node.id)}
+                                    disabled={isGeneratingOverall || generatedContent?.status === 'generating'}
+                                >
+                                    <RefreshCw className={`h-4 w-4 ${generatedContent?.status === 'generating' ? 'animate-spin' : ''}`} />
+                                    {generatedContent?.status === 'generating' ? t('node.status.generating') : t('node.regenerate')}
                                 </Button>
                             )}
 
-                            {hasNodeFacts(node) && (
-                                <div className="mt-3" onMouseDown={(e) => e.stopPropagation()}>
-                                    <AtomicFactsList
-                                        materials={node.materials}
-                                        onFactToggle={(materialId, factId) => handleNodeFactToggle(node.id, materialId, factId)}
-                                    />
-                                </div>
-                            )}
+                            <Button
+                                variant="outline"
+                                className="w-full gap-2 border-dashed"
+                                onClick={() => onOpenDeepEdit(node.id)}
+                            >
+                                <Sparkles className="h-4 w-4" />
+                                {t('node.deepEdit')}
+                            </Button>
                         </div>
                     </div>
                 )}

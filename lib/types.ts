@@ -7,11 +7,12 @@ export interface AtomicFact {
 
 export interface Material {
   id: string
-  type: "file" | "url"
+  type: "file" | "url" | "text"
   name: string
   url?: string
   file?: File
   facts: AtomicFact[]
+  content?: string
 }
 
 export interface GlobalContext {
@@ -30,6 +31,9 @@ export interface BlueprintNode {
   localFacts: string[]
   locked?: boolean
   searchEnabled?: boolean
+  status?: "pending" | "generating" | "completed" | "error"
+  progress?: number
+  content?: string
 }
 
 export interface Blueprint {

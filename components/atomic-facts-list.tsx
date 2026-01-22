@@ -44,7 +44,7 @@ export function AtomicFactsList({ materials, onFactToggle }: AtomicFactsListProp
                       : "border-muted bg-muted/30 text-muted-foreground opacity-60 hover:opacity-80",
                   )}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
                     <div
                       className={cn(
                         "flex-shrink-0 mt-0.5 h-4 w-4 rounded-sm border transition-colors flex items-center justify-center",
@@ -55,7 +55,7 @@ export function AtomicFactsList({ materials, onFactToggle }: AtomicFactsListProp
                     >
                       {fact.enabled && <Check className="h-3 w-3" />}
                     </div>
-                    <p className="text-sm leading-relaxed flex-1">{fact.content}</p>
+                    <p className="text-sm leading-relaxed flex-1 break-words">{fact.content}</p>
                   </div>
                 </Card>
               ))}

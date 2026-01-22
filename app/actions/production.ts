@@ -29,10 +29,9 @@ export async function writeNodeContent(
         }
     }
 
-    const allUserFacts = [...globalFacts, ...localFacts];
-    const searchFacts = searchResults ? [searchResults] : []; // simplified for now, could split results
+    const searchFacts = searchResults ? [searchResults] : [];
 
-    const weightedFacts = buildWeightedFacts(allUserFacts, searchFacts);
+    const weightedFacts = buildWeightedFacts(globalFacts, localFacts, searchFacts);
     const prompt = generateNodePrompt(
         nodeTitle,
         nodeDescription,
@@ -104,15 +103,66 @@ export async function integrateNode(
 }
 
 /**
- * Fold 4: Global Audit
- * Checks for hallucinations or tone inconsistencies.
- * Now supports web search for fact-checking.
+ * Fold 4: Global Refinement
+ * Refines the full article to ensure flow, consistency with tone/audience, 
+ * and strict adherence to global intent and facts.
  */
-export async function auditContent(fullContent: string, allFacts: string[], enableSearch: boolean = false) {
+export async function refineFullArticle(
+    fullContent: string,
+    globalFacts: string[],
+    intent: string,
+    userConstraints: Record<string, any>
+) {
+    try {
+        const { text } = await generateText({
+            model: writingModel,
+            prompt: `
+        You are an expert Editor. Your task is to refine and rewrite the provided draft into a cohesive, professional article.
+        
+        Core Intent:
+        ${intent}
+        
+        Global Facts to Adhere To:
+        ${globalFacts.join('\n- ')}
+        
+        User Constraints:
+        - Tone: ${userConstraints.tone || 'Professional'}
+        - Audience: ${userConstraints.target_audience || 'General'}
+        
+        Draft Content:
+        ${fullContent}
+        
+        Task:
+        1. Rewrite the draft to ensure a logical flow and smooth transitions between sections.
+        2. Strictly ground the content in the Global Facts provided.
+        3. Match the specified Tone and Target Audience perfectly.
+        4. Eliminate redundancies and improve vocabulary while maintaining the core message of each section.
+        5. DO NOT hallucinate. Only use info from facts or common logic consistent with the intent.
+        
+        IMPORTANT: Use the same language as the input draft. Return the FULL refined article text.
+      `,
+        });
+
+        return { success: true, data: text };
+    } catch (error) {
+        console.error('Refinement Error:', error);
+        return { success: false, error: 'Failed to refine article' };
+    }
+}
+
+/**
+ * Fold 4: Global Audit (V1.0 Logic)
+ * Checks for hallucinations or tone inconsistencies using a JSON Array protocol.
+ */
+export async function auditContent(
+    fullContent: string,
+    allFacts: string[],
+    enableSearch: boolean = false,
+    materials: { name: string, content: string }[] = []
+) {
     let searchResults = "";
     if (enableSearch) {
         try {
-            // Generate a verification query based on the main content
             const queryResult = await generateText({
                 model: planningModel,
                 prompt: `Analyze the following article and generate a concise search query to verify its key factual claims.\n\nArticle:\n${fullContent.slice(0, 1000)}...`,
@@ -128,6 +178,10 @@ export async function auditContent(fullContent: string, allFacts: string[], enab
         }
     }
 
+    const materialsContext = materials.length > 0
+        ? `\n[CORE SOURCE MATERIALS (Absolute Priority)]:\n${materials.map(m => `--- Start of ${m.name} ---\n${m.content}\n--- End of ${m.name} ---`).join('\n\n')}`
+        : '';
+
     try {
         const { text } = await generateText({
             model: planningModel,
@@ -136,24 +190,45 @@ export async function auditContent(fullContent: string, allFacts: string[], enab
         
         Article:
         ${fullContent}
-        
-        Allowed Facts (Source: User Provided):
+        ${materialsContext}
+
+        Allowed Facts:
         ${allFacts.join('\n- ')}
         
-        ${searchResults ? `External Verification Reference (Source: Web Search):\n${searchResults}` : ''}
+        ${searchResults ? `External Verification Reference (Secondary Priority):\n${searchResults}` : ''}
         
         Task:
-        1. Identify any claims not supported by the Allowed Facts or contradicting External Verification References.
-        2. Detect tone inconsistencies throughout the article.
-        3. Factual accuracy check: If the article makes specific claims not in Allowed Facts, use External Verification to confirm.
+        1. Identify issues in the following categories:
+           - FACTUAL_ERROR: Claims not supported by facts or materials.
+           - TONE_INCONSISTENCY: Sections that don't match the tone.
+           - REDUNDANCY: Repetitive content.
+           - LOGICAL_GAP: Missing transitions.
+
+        2. HIERARCHY OF TRUTH: [CORE SOURCE MATERIALS] are ABSOLUTE. If search results contradict materials, the materials WIN.
         
-        Output:
-        If no issues, say "PASSED". Otherwise, list the issues found.
-        IMPORTANT: Your audit report MUST be in the same language as the Article.
+        Output Format (JSON Array only):
+        [
+          {
+            "type": "risk" | "suggestion" | "anomaly" | "passed",
+            "title": "Short title of the issue",
+            "description": "Detailed explanation"
+          }
+        ]
+        
+        IMPORTANT: Your output MUST be a valid JSON array and in the same language as the Article.
+        If no issues found, return a "passed" item saying "Overall Audit Passed".
       `,
         });
 
-        return { success: true, data: text };
+        // Attempt to parse JSON from the AI response
+        const cleanText = text.replace(/```json|```/g, '').trim();
+        try {
+            const parsed = JSON.parse(cleanText);
+            return { success: true, data: parsed };
+        } catch (e) {
+            console.error('JSON Parse Error for Audit Result:', e);
+            return { success: false, error: 'AI response was not a valid JSON array' };
+        }
     } catch (error) {
         console.error('Audit Error:', error);
         return { success: false, error: 'Failed to audit content' };
@@ -163,29 +238,43 @@ export async function auditContent(fullContent: string, allFacts: string[], enab
  * Fold 5: Title Generation
  * Generates a title based on the integrated content and user constraints.
  */
-export async function generateTitle(fullContent: string, userConstraints: Record<string, any>) {
+export async function generateTitle(
+    fullContent: string,
+    intent: string,
+    facts: string[],
+    userConstraints: Record<string, any>
+) {
     try {
         const { text } = await generateText({
             model: planningModel,
             prompt: `
-        Analyze the following article and generate a compelling, professional title.
+        Analyze the following article content and its original context to generate a compelling, professional title.
         
-        Article Content:
-        ${fullContent.slice(0, 5000)}... (truncated for analysis)
+        Original Intent:
+        ${intent}
+        
+        Key Facts/Themes:
+        ${facts.join('\n- ')}
+        
+        Background Information (User Inputs):
+        ${JSON.stringify(userConstraints)}
+        
+        Full Article Content (First 5000 chars):
+        ${fullContent.slice(0, 5000)}...
         
         Constraints:
         - Tone: ${userConstraints.tone || 'Professional'}
         - Audience: ${userConstraints.target_audience || 'General'}
         
         Task:
-        1. Extract the core viewpoint and theme.
-        2. Create a title that is engaging and reflects the content accurately.
-        3. Return ONLY the title text.
-        IMPORTANT: Your title MUST be in the same language as the Article Content.
+        1. Synthesize the title from BOTH the original intent and the actual generated content.
+        2. Ensure the title reflects the core value proposition and tone.
+        3. Return ONLY the title text itself. No quotes, no prefix.
+        4. Match the language of the provided content.
       `,
         });
 
-        return { success: true, data: text.trim() };
+        return { success: true, data: text.trim().replace(/^"|"$/g, '') };
     } catch (error) {
         console.error('Title Generation Error:', error);
         return { success: false, error: 'Failed to generate title' };

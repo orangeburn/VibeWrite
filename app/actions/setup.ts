@@ -187,26 +187,36 @@ const FormFieldSchema = z.object({
  * Fold 1: Generate Dynamic GUI Schema
  * Creates a list of questions/fields to ask the user based on the "Missing Information".
  */
-export async function generateFormSchema(missingInfo: string[]) {
-    if (missingInfo.length === 0) return { success: true, data: [] };
+export async function generateFormSchema(missingInfo: string[], intent: string = "", selectedFacts: string[] = []) {
+    // Determine if we have enough context to generate a form
+    const hasContext = missingInfo.length > 0 || intent.trim() !== "" || selectedFacts.length > 0;
+    if (!hasContext) return { success: true, data: [] };
 
     try {
         const { object } = await generateObject({
             model: planningModel,
             schema: FormFieldSchema,
             prompt: `
-        Based on the following missing information detected in the writing request, 
-        generate a list of form fields to present to the user to gather this specific information.
+        You are an expert AI writing assistant.
+        
+        Your goal is to generate a dynamic configuration form to gather necessary details from the user before generating a writing blueprint.
+        Based on the user's "Writing Intent", "Selected Key Facts", and any identified "Missing Information", create a list of questions (form fields).
 
-        Missing Information:
-        ${missingInfo.join('\n')}
+        Context:
+        - User's Writing Intent: "${intent || "Not specified"}"
+        - Selected Key Facts/Themes:
+        ${selectedFacts.length > 0 ? selectedFacts.map(f => `  - ${f}`).join('\n') : "  - None selected"}
+        
+        - Previously Identified Missing Information:
+        ${missingInfo.length > 0 ? missingInfo.join('\n') : "  - None identified"}
 
         Create a user-friendly configuration form.
         IMPORTANT Guidelines:
-        1. Use the SAME LANGUAGE as the Missing Information for all labels, options, and descriptions.
-        2. If 'type' is 'select' or 'checkbox', you MUST provide a non-empty list of 'options'.
-        3. STRICT NEGATIVE CONSTRAINT: DO NOT generate any fields regarding "images", "pictures", "videos", "multimedia", "illustrations", "graphics", or "visual style". EXCLUDE them completely.
-        4. For 'checkbox' type with multiple options, it will be rendered as a multi-select list.
+        1. prioritize the "Missing Information" if available, but also generate relevant questions based on the "Intent" and "Selected Key Facts" to refine the output.
+        2. Use the SAME LANGUAGE as the User's Intent/Facts for all labels, options, and descriptions.
+        3. If 'type' is 'select' or 'checkbox', you MUST provide a non-empty list of 'options'.
+        4. STRICT NEGATIVE CONSTRAINT: DO NOT generate any fields regarding "images", "pictures", "videos", "multimedia", "illustrations", "graphics", or "visual style". EXCLUDE them completely.
+        5. For 'checkbox' type with multiple options, it will be rendered as a multi-select list.
       `,
         });
 

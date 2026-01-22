@@ -103,8 +103,8 @@ export function MaterialUploader({ materials, onMaterialsChange }: MaterialUploa
                     <Globe className="h-4 w-4 text-muted-foreground" />
                   )}
                 </div>
-                <div>
-                  <p className="text-sm font-medium">{material.name}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate" title={material.name}>{material.name}</p>
                   <p className="text-xs text-muted-foreground">{material.type === "file" ? "本地文件" : "网页链接"}</p>
                 </div>
               </div>

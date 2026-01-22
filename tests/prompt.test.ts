@@ -2,19 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { buildWeightedFacts, generateNodePrompt } from '../lib/prompt';
 
 describe('Prompt Weights Logic', () => {
-    it('should prioritize user facts over search facts', () => {
-        const userFacts = ['User defined fact 1'];
-        const searchFacts = ['Search result 1'];
+    it('should prioritize local facts over global and search facts', () => {
+        const globalFacts = ['Global fact'];
+        const localFacts = ['Local fact'];
+        const searchFacts = ['Search result'];
 
-        const result = buildWeightedFacts(userFacts, searchFacts);
+        const result = buildWeightedFacts(globalFacts, localFacts, searchFacts);
 
-        // Check if [USER] appears before [SEARCH]
-        const userPos = result.indexOf('[USER]');
+        const localPos = result.indexOf('[LOCAL]');
+        const globalPos = result.indexOf('[GLOBAL]');
         const searchPos = result.indexOf('[SEARCH]');
 
-        expect(userPos).toBeLessThan(searchPos);
-        expect(result).toContain('User defined fact 1');
-        expect(result).toContain('Search result 1');
+        expect(localPos).toBeLessThan(globalPos);
+        expect(globalPos).toBeLessThan(searchPos);
+        expect(result).toContain('Local fact');
+        expect(result).toContain('Global fact');
+        expect(result).toContain('Search result');
     });
 
     it('should generate a self-contained node prompt', () => {

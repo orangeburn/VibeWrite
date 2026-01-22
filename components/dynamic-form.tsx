@@ -41,7 +41,7 @@ export function DynamicForm({ intent, selectedFacts, onComplete, fields = [] }: 
   const fieldsToRender = fields
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full min-w-0">
       {fieldsToRender.map((field) => (
         <div key={field.key} className="space-y-2">
           <Label htmlFor={field.key}>{field.label}</Label>
@@ -68,8 +68,8 @@ export function DynamicForm({ intent, selectedFacts, onComplete, fields = [] }: 
 
           {field.type === "select" && field.options && (
             <Select value={formData[field.key]} onValueChange={(value) => handleChange(field.key, value)}>
-              <SelectTrigger id={field.key}>
-                <SelectValue placeholder={`选择${field.label}`} />
+              <SelectTrigger id={field.key} className="w-full min-w-0">
+                <SelectValue placeholder={`选择${field.label}`} className="line-clamp-1" />
               </SelectTrigger>
               <SelectContent>
                 {field.options.map((opt) => (
@@ -84,15 +84,16 @@ export function DynamicForm({ intent, selectedFacts, onComplete, fields = [] }: 
           {field.type === "checkbox" && (
             <div className="space-y-3">
               {field.options && field.options.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
                   {field.options.map((opt) => {
                     const currentValues = (formData[field.key] as string[]) || []
                     const isChecked = currentValues.includes(opt)
                     return (
-                      <div key={opt} className="flex items-center space-x-2 bg-muted/30 p-2 rounded-md border border-transparent hover:border-border transition-all">
+                      <div key={opt} className="flex items-start space-x-2 bg-muted/30 p-2 rounded-md border border-transparent hover:border-border transition-all min-w-0">
                         <Checkbox
                           id={`${field.key}-${opt}`}
                           checked={isChecked}
+                          className="mt-0.5 flex-shrink-0"
                           onCheckedChange={(checked) => {
                             if (checked) {
                               handleChange(field.key, [...currentValues, opt])
@@ -103,7 +104,7 @@ export function DynamicForm({ intent, selectedFacts, onComplete, fields = [] }: 
                         />
                         <label
                           htmlFor={`${field.key}-${opt}`}
-                          className="text-sm font-medium leading-none cursor-pointer flex-1"
+                          className="text-sm font-medium leading-normal cursor-pointer flex-1 break-all min-w-0"
                         >
                           {opt}
                         </label>
