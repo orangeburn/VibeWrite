@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+// Trigger build: Fix pnpm lockfile
 const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
