@@ -1,3 +1,5 @@
+export const runtime = 'edge';
+
 import { ThreeColumnLayout } from "@/components/three-column-layout"
 
 export default function Home() {
