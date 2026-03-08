@@ -9,7 +9,7 @@ import { SceneConfigurationPanel } from "./scene-configuration-panel"
 import { BlueprintEditor } from "./blueprint-editor"
 import { AuditPanel } from "./audit-panel"
 import { Separator } from "@/components/ui/separator"
-import { ArrowRight, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelLeft, Moon, Sun, Globe } from "lucide-react"
+import { ArrowRight, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelLeft, Moon, Sun, Globe, Github } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useTranslation } from "@/lib/i18n"
@@ -173,6 +173,23 @@ export function ThreeColumnLayout({ children }: ThreeColumnLayoutProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* GitHub Link */}
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            title="GitHub"
+          >
+            <a
+              href="https://github.com/orangeburn/VibeWrite"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="GitHub"
+            >
+              <Github className="h-4 w-4" />
+            </a>
+          </Button>
+
           {/* Network Toggle Button (matches theme toggle style) */}
           <Button
             variant="ghost"
