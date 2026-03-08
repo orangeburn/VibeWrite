@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"
 import { ThemeProvider } from "@/components/theme-provider"
+import { ApiRateLimitToast } from "@/components/api-rate-limit-toast"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -10,21 +11,8 @@ export const metadata: Metadata = {
   description: "基于共识驱动与模块化生成的 AI 协作工具",
   generator: "v0.app",
   icons: {
-    icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
-    ],
-    apple: "/apple-icon.png",
+    icon: "/logo.png",
+    apple: "/logo.png",
   },
 }
 
@@ -38,6 +26,7 @@ export default function RootLayout({
       <body className={`font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           {children}
+          <ApiRateLimitToast />
           <Toaster position="top-center" richColors />
           <Analytics />
         </ThemeProvider>

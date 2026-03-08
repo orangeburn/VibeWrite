@@ -4,7 +4,7 @@ import * as React from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { PanelLeft, Moon, Sun, Globe } from "lucide-react"
+import { PanelLeft, Moon, Sun, Globe, Github } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useAppStore } from "@/lib/store"
 import { Switch } from "@/components/ui/switch"
@@ -32,6 +32,23 @@ export function VibeLayout({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* GitHub Link */}
+                    <Button
+                        asChild
+                        variant="ghost"
+                        size="icon"
+                        title="GitHub"
+                    >
+                        <a
+                            href="https://github.com/orangeburn/VibeWrite"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="GitHub"
+                        >
+                            <Github className="h-4 w-4" />
+                        </a>
+                    </Button>
+
                     {/* Network Toggle Button (matches theme toggle style) */}
                     <Button
                         variant="ghost"

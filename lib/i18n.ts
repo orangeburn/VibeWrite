@@ -185,6 +185,7 @@ type TranslationKey =
     | 'toast.exportedMarkdown'
     | 'toast.exportedDocx'
     | 'toast.exportedTxt'
+    | 'toast.quotaExceeded'
 
 const translations: Record<Language, Record<TranslationKey, string>> = {
     zh: {
@@ -401,6 +402,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
         'toast.exportedMarkdown': '已导出为 Markdown',
         'toast.exportedDocx': '已导出为 DOCX',
         'toast.exportedTxt': '已导出为 TXT',
+        'toast.quotaExceeded': '今日额度已完',
     },
     en: {
         appName: 'VibeWrite',
@@ -616,6 +618,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
         'toast.exportedMarkdown': 'Exported as Markdown',
         'toast.exportedDocx': 'Exported as DOCX',
         'toast.exportedTxt': 'Exported as TXT',
+        'toast.quotaExceeded': "Today's quota is used up",
     },
     ja: {
         appName: 'VibeWrite',
@@ -831,6 +834,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
         'toast.exportedMarkdown': 'Markdownとしてエクスポートされました',
         'toast.exportedDocx': 'DOCXとしてエクスポートされました',
         'toast.exportedTxt': 'TXTとしてエクスポートされました',
+        'toast.quotaExceeded': '本日の上限に達しました',
     },
     ko: {
         appName: 'VibeWrite',
@@ -1046,6 +1050,7 @@ const translations: Record<Language, Record<TranslationKey, string>> = {
         'toast.exportedMarkdown': 'Markdown으로 내보냈습니다',
         'toast.exportedDocx': 'DOCX로 내보냈습니다',
         'toast.exportedTxt': 'TXT로 내보냈습니다',
+        'toast.quotaExceeded': '오늘의 할당량을 모두 사용했습니다',
     }
 } as const
 
